@@ -5,14 +5,13 @@ import { personas } from './lib/personas';
 
 export default function Home() {
   const [question, setQuestion] = useState('');
-  const [githubToken, setGithubToken] = useState('');
   const [isSimulating, setIsSimulating] = useState(false);
   const [responses, setResponses] = useState({});
   const [synthesis, setSynthesis] = useState('');
   const [synthesisState, setSynthesisState] = useState('idle'); // idle, streaming, done
 
   const handleSimulate = async () => {
-    if (!question || !githubToken) return;
+    if (!question) return;
     setIsSimulating(true);
     setResponses({});
     setSynthesis('');
@@ -27,7 +26,7 @@ export default function Home() {
       const res = await fetch('/api/simulate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ question, githubToken }),
+        body: JSON.stringify({ question }),
       });
 
       if (!res.body) throw new Error('No body');
@@ -106,22 +105,10 @@ export default function Home() {
             placeholder="e.g. Should we pivot our B2B SaaS from seat-based pricing to usage-based pricing?"
             className="w-full h-32 p-4 rounded-xl border border-neutral-300 focus:outline-none focus:ring-2 focus:ring-neutral-900 resize-none text-lg"
           />
-          <div className="flex flex-col md:flex-row gap-4 items-end justify-between border-t border-neutral-100 pt-4 mt-2">
-            <div className="w-full md:w-1/2 space-y-2">
-               <label className="block text-xs font-medium text-neutral-500">GitHub Personal Access Token (PAT)</label>
-               <input
-                 type="password"
-                 value={githubToken}
-                 onChange={(e) => setGithubToken(e.target.value)}
-                 disabled={isSimulating}
-                 placeholder="ghp_xxxxxxxxxxxxxxxxxxxx"
-                 className="w-full p-2 rounded-lg border border-neutral-300 focus:outline-none focus:ring-2 focus:ring-neutral-900 text-sm"
-               />
-               <p className="text-xs text-neutral-400">Required to use the free GitHub Models API.</p>
-            </div>
+          <div className="flex justify-end border-t border-neutral-100 pt-4 mt-2">
             <button 
               onClick={handleSimulate}
-              disabled={isSimulating || !question || !githubToken}
+              disabled={isSimulating || !question}
               className="px-8 py-3 bg-neutral-900 text-white rounded-xl font-medium shadow-sm hover:bg-neutral-800 disabled:opacity-50 transition-colors whitespace-nowrap"
             >
               {isSimulating ? 'Simulating...' : 'Run Simulation'}
