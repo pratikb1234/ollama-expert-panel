@@ -3,24 +3,31 @@ import { personas } from '../../lib/personas';
 export const runtime = 'edge';
 
 export async function POST(req) {
-  const { question } = await req.json();
+  const { question, githubToken } = await req.json();
 
   if (!question) {
     return new Response(JSON.stringify({ error: 'Question is required' }), { status: 400 });
+  }
+
+  if (!githubToken) {
+    return new Response(JSON.stringify({ error: 'GitHub Token is required' }), { status: 401 });
   }
 
   const encoder = new TextEncoder();
   const stream = new ReadableStream({
     async start(controller) {
       try {
-        // Fire 12 parallel requests
+        // Fire 12 parallel requests using GitHub Models API
         const promises = personas.map(async (persona) => {
           try {
-            const res = await fetch('http://localhost:11434/api/chat', {
+            const res = await fetch('https://models.inference.ai.azure.com/chat/completions', {
               method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
+              headers: { 
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${githubToken}`
+              },
               body: JSON.stringify({
-                model: 'llama3', // User can change this to mistral:7b if needed
+                model: 'Mistral-Nemo', // Open source model available on GitHub Models
                 stream: true,
                 messages: [
                   { role: 'system', content: persona.system_prompt },
@@ -33,8 +40,9 @@ export async function POST(req) {
             });
 
             if (!res.ok) {
-              controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'error', id: persona.id, message: 'Ollama API error' })}\n\n`));
-              return;
+              const errText = await res.text();
+              controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'error', id: persona.id, message: `API Error: ${res.status}` })}\n\n`));
+              return null;
             }
 
             const reader = res.body.getReader();
@@ -49,10 +57,16 @@ export async function POST(req) {
               const lines = chunk.split('\n').filter(Boolean);
               
               for (const line of lines) {
-                const parsed = JSON.parse(line);
-                if (parsed.message?.content) {
-                  fullResponse += parsed.message.content;
-                  controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'chunk', id: persona.id, content: parsed.message.content })}\n\n`));
+                if (line.trim() === 'data: [DONE]') continue;
+                if (line.startsWith('data: ')) {
+                  try {
+                    const parsed = JSON.parse(line.slice(6));
+                    const content = parsed.choices?.[0]?.delta?.content;
+                    if (content) {
+                      fullResponse += content;
+                      controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'chunk', id: persona.id, content: content })}\n\n`));
+                    }
+                  } catch(e) {}
                 }
               }
             }
@@ -74,11 +88,14 @@ export async function POST(req) {
         const validResponses = completedResponses.filter(r => r !== null);
         const synthesisPrompt = validResponses.map(r => `[${r.persona.name} - ${r.persona.role}]: ${r.response}`).join('\n\n');
 
-        const synthesisRes = await fetch('http://localhost:11434/api/chat', {
+        const synthesisRes = await fetch('https://models.inference.ai.azure.com/chat/completions', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${githubToken}`
+          },
           body: JSON.stringify({
-            model: 'llama3',
+            model: 'Mistral-Nemo',
             stream: true,
             messages: [
               { 
@@ -106,10 +123,16 @@ RECOMMENDATION: [1 sentence]`
             const chunk = sDecoder.decode(value);
             const lines = chunk.split('\n').filter(Boolean);
             for (const line of lines) {
-              const parsed = JSON.parse(line);
-              if (parsed.message?.content) {
-                synthesisFull += parsed.message.content;
-                controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'synthesis_chunk', content: parsed.message.content })}\n\n`));
+              if (line.trim() === 'data: [DONE]') continue;
+              if (line.startsWith('data: ')) {
+                try {
+                  const parsed = JSON.parse(line.slice(6));
+                  const content = parsed.choices?.[0]?.delta?.content;
+                  if (content) {
+                    synthesisFull += content;
+                    controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'synthesis_chunk', content: content })}\n\n`));
+                  }
+                } catch(e) {}
               }
             }
           }
