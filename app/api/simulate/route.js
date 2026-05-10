@@ -4,12 +4,13 @@ export const runtime = 'edge';
 
 export async function POST(req) {
   const { question, githubToken } = await req.json();
+  const token = githubToken || process.env.GITHUB_TOKEN;
 
   if (!question) {
     return new Response(JSON.stringify({ error: 'Question is required' }), { status: 400 });
   }
 
-  if (!githubToken) {
+  if (!token) {
     return new Response(JSON.stringify({ error: 'GitHub Token is required' }), { status: 401 });
   }
 
@@ -24,7 +25,7 @@ export async function POST(req) {
               method: 'POST',
               headers: { 
                 'Content-Type': 'application/json',
-                'Authorization': `Bearer ${githubToken}`
+                'Authorization': `Bearer ${token}`
               },
               body: JSON.stringify({
                 model: 'Mistral-Nemo', // Open source model available on GitHub Models
@@ -92,7 +93,7 @@ export async function POST(req) {
           method: 'POST',
           headers: { 
             'Content-Type': 'application/json',
-            'Authorization': `Bearer ${githubToken}`
+            'Authorization': `Bearer ${token}`
           },
           body: JSON.stringify({
             model: 'Mistral-Nemo',
