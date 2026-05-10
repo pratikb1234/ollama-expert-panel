@@ -54,19 +54,23 @@ export async function POST(req) {
               const reader = res.body.getReader();
               const decoder = new TextDecoder();
               let fullResponse = '';
+              let buffer = '';
 
               while (true) {
                 const { done, value } = await reader.read();
                 if (done) break;
                 
-                const chunk = decoder.decode(value);
-                const lines = chunk.split('\n').filter(Boolean);
+                buffer += decoder.decode(value, { stream: true });
+                const lines = buffer.split('\n');
+                buffer = lines.pop() || '';
                 
                 for (const line of lines) {
-                  if (line.trim() === 'data: [DONE]') continue;
-                  if (line.startsWith('data: ')) {
+                  const trimmedLine = line.trim();
+                  if (!trimmedLine) continue;
+                  if (trimmedLine === 'data: [DONE]') continue;
+                  if (trimmedLine.startsWith('data: ')) {
                     try {
-                      const parsed = JSON.parse(line.slice(6));
+                      const parsed = JSON.parse(trimmedLine.slice(6));
                       const content = parsed.choices?.[0]?.delta?.content;
                       if (content) {
                         fullResponse += content;
@@ -129,17 +133,23 @@ RECOMMENDATION: [1 sentence]`
           const sReader = synthesisRes.body.getReader();
           const sDecoder = new TextDecoder();
           let synthesisFull = '';
+          let sBuffer = '';
 
           while (true) {
             const { done, value } = await sReader.read();
             if (done) break;
-            const chunk = sDecoder.decode(value);
-            const lines = chunk.split('\n').filter(Boolean);
+            
+            sBuffer += sDecoder.decode(value, { stream: true });
+            const lines = sBuffer.split('\n');
+            sBuffer = lines.pop() || '';
+            
             for (const line of lines) {
-              if (line.trim() === 'data: [DONE]') continue;
-              if (line.startsWith('data: ')) {
+              const trimmedLine = line.trim();
+              if (!trimmedLine) continue;
+              if (trimmedLine === 'data: [DONE]') continue;
+              if (trimmedLine.startsWith('data: ')) {
                 try {
-                  const parsed = JSON.parse(line.slice(6));
+                  const parsed = JSON.parse(trimmedLine.slice(6));
                   const content = parsed.choices?.[0]?.delta?.content;
                   if (content) {
                     synthesisFull += content;

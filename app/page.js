@@ -33,13 +33,15 @@ export default function Home() {
 
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
+      let buffer = '';
 
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
 
-        const chunk = decoder.decode(value);
-        const lines = chunk.split('\n\n').filter(Boolean);
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n\n');
+        buffer = lines.pop() || ''; // Keep the incomplete chunk in the buffer
 
         for (const line of lines) {
           if (line.startsWith('data: ')) {
