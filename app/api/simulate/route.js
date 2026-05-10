@@ -18,70 +18,82 @@ export async function POST(req) {
   const stream = new ReadableStream({
     async start(controller) {
       try {
-        // Fire 12 parallel requests using GitHub Models API
-        const promises = personas.map(async (persona) => {
-          try {
-            const res = await fetch('https://models.inference.ai.azure.com/chat/completions', {
-              method: 'POST',
-              headers: { 
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${token}`
-              },
-              body: JSON.stringify({
-                model: 'Meta-Llama-3.1-8B-Instruct', // Open source model available on GitHub Models
-                stream: true,
-                messages: [
-                  { role: 'system', content: persona.system_prompt },
-                  { 
-                    role: 'user', 
-                    content: `${question}\n\nRespond in 4-5 sentences in your own voice and worldview. End with one line: VERDICT: BULLISH / CAUTIOUS / SKEPTICAL / NEUTRAL and one line: KEY CONCERN: [one sentence]` 
-                  }
-                ]
-              })
-            });
-
-            if (!res.ok) {
-              const errText = await res.text();
-              controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'error', id: persona.id, message: `API Error: ${res.status}` })}\n\n`));
-              return null;
-            }
-
-            const reader = res.body.getReader();
-            const decoder = new TextDecoder();
-            let fullResponse = '';
-
-            while (true) {
-              const { done, value } = await reader.read();
-              if (done) break;
-              
-              const chunk = decoder.decode(value);
-              const lines = chunk.split('\n').filter(Boolean);
-              
-              for (const line of lines) {
-                if (line.trim() === 'data: [DONE]') continue;
-                if (line.startsWith('data: ')) {
-                  try {
-                    const parsed = JSON.parse(line.slice(6));
-                    const content = parsed.choices?.[0]?.delta?.content;
-                    if (content) {
-                      fullResponse += content;
-                      controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'chunk', id: persona.id, content: content })}\n\n`));
+        // Process in batches of 3 to avoid 429 Too Many Requests (Concurrency limits)
+        const BATCH_SIZE = 3;
+        const completedResponses = [];
+        
+        for (let i = 0; i < personas.length; i += BATCH_SIZE) {
+          const batch = personas.slice(i, i + BATCH_SIZE);
+          
+          const batchPromises = batch.map(async (persona) => {
+            try {
+              const res = await fetch('https://models.inference.ai.azure.com/chat/completions', {
+                method: 'POST',
+                headers: { 
+                  'Content-Type': 'application/json',
+                  'Authorization': `Bearer ${token}`
+                },
+                body: JSON.stringify({
+                  model: 'Meta-Llama-3.1-8B-Instruct',
+                  stream: true,
+                  messages: [
+                    { role: 'system', content: persona.system_prompt },
+                    { 
+                      role: 'user', 
+                      content: `${question}\n\nRespond in 4-5 sentences in your own voice and worldview. End with one line: VERDICT: BULLISH / CAUTIOUS / SKEPTICAL / NEUTRAL and one line: KEY CONCERN: [one sentence]` 
                     }
-                  } catch(e) {}
+                  ]
+                })
+              });
+
+              if (!res.ok) {
+                controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'error', id: persona.id, message: `API Error: ${res.status} ${res.statusText}` })}\n\n`));
+                return null;
+              }
+
+              const reader = res.body.getReader();
+              const decoder = new TextDecoder();
+              let fullResponse = '';
+
+              while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                
+                const chunk = decoder.decode(value);
+                const lines = chunk.split('\n').filter(Boolean);
+                
+                for (const line of lines) {
+                  if (line.trim() === 'data: [DONE]') continue;
+                  if (line.startsWith('data: ')) {
+                    try {
+                      const parsed = JSON.parse(line.slice(6));
+                      const content = parsed.choices?.[0]?.delta?.content;
+                      if (content) {
+                        fullResponse += content;
+                        controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'chunk', id: persona.id, content: content })}\n\n`));
+                      }
+                    } catch(e) {}
+                  }
                 }
               }
+
+              controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'done', id: persona.id, fullResponse })}\n\n`));
+              return { persona, response: fullResponse };
+              
+            } catch (err) {
+              controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'error', id: persona.id, message: err.message })}\n\n`));
+              return null;
             }
+          });
 
-            controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'done', id: persona.id, fullResponse })}\n\n`));
-            return { persona, response: fullResponse };
-            
-          } catch (err) {
-            controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'error', id: persona.id, message: err.message })}\n\n`));
-            return null;
+          const batchResults = await Promise.all(batchPromises);
+          completedResponses.push(...batchResults);
+          
+          // Add a 1-second delay between batches to respect rate limits
+          if (i + BATCH_SIZE < personas.length) {
+            await new Promise(resolve => setTimeout(resolve, 1000));
           }
-        });
-
-        const completedResponses = await Promise.all(promises);
+        }
 
         // All 12 finished, fire synthesis call
         controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'synthesis_start' })}\n\n`));
