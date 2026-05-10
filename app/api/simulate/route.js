@@ -28,7 +28,7 @@ export async function POST(req) {
                 'Authorization': `Bearer ${token}`
               },
               body: JSON.stringify({
-                model: 'Mistral-Nemo', // Open source model available on GitHub Models
+                model: 'Meta-Llama-3.1-8B-Instruct', // Open source model available on GitHub Models
                 stream: true,
                 messages: [
                   { role: 'system', content: persona.system_prompt },
@@ -96,7 +96,7 @@ export async function POST(req) {
             'Authorization': `Bearer ${token}`
           },
           body: JSON.stringify({
-            model: 'Mistral-Nemo',
+            model: 'Meta-Llama-3.1-8B-Instruct',
             stream: true,
             messages: [
               { 
